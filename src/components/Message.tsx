@@ -1,5 +1,6 @@
 import styled, { css, keyframes } from 'styled-components';
 import type { Message as MessageType, MessagePosition } from '../types';
+import { parseMessage, renderSegments } from '../utils/formatting';
 
 interface MessageProps {
   message: MessageType;
@@ -32,7 +33,7 @@ export function Message({ message, position }: MessageProps) {
         $fromMe={message.fromMe}
         $borderRadius={getBorderRadius(message.fromMe, position)}
       >
-        <Text>{message.text}</Text>
+        <Text>{renderSegments(parseMessage(message.text))}</Text>
       </Bubble>
       {showTime && (
         <Time $fromMe={message.fromMe}>
@@ -85,7 +86,6 @@ const Text = styled.p`
   margin: 0;
   font-size: 16px;
   line-height: 1.4;
-  white-space: pre-wrap;
 `;
 
 const Time = styled.span<{ $fromMe: boolean }>`
