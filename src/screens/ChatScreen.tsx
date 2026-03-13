@@ -20,11 +20,12 @@ function getPosition(messages: MessageType[], index: number): MessagePosition {
 
 interface ChatScreenProps {
   chatService: ChatService;
+  peerId: string;
   onEnd: () => void;
 }
 
-export function ChatScreen({ chatService, onEnd }: ChatScreenProps) {
-  const { messages, send } = useChat(chatService, onEnd);
+export function ChatScreen({ chatService, peerId, onEnd }: ChatScreenProps) {
+  const { messages, send } = useChat(chatService, onEnd, peerId || undefined);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {

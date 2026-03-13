@@ -10,6 +10,7 @@ export class WebRTCService {
   onChannelOpen: (() => void) | null = null;
   onChannelMessage: ((data: string) => void) | null = null;
   onChannelClose: (() => void) | null = null;
+  onPeerIdentity: ((id: string) => void) | null = null;
 
   constructor() {
     this.pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
@@ -46,9 +47,15 @@ export class WebRTCService {
     await this.pc.setRemoteDescription(answer);
   }
 
-  send(message: string): void {
+  send(text: string): void {
     if (this.channel?.readyState === 'open') {
-      this.channel.send(message);
+      this.channel.send(JSON.stringify({ t: 'msg', text }));
+    }
+  }
+
+  sendIdentity(id: string): void {
+    if (this.channel?.readyState === 'open') {
+      this.channel.send(JSON.stringify({ t: 'id', id }));
     }
   }
 
@@ -56,6 +63,7 @@ export class WebRTCService {
     this.onChannelOpen = null;
     this.onChannelMessage = null;
     this.onChannelClose = null;
+    this.onPeerIdentity = null;
     this.channel?.close();
     this.pc.close();
   }
@@ -77,7 +85,16 @@ export class WebRTCService {
 
   private bindChannelEvents(channel: RTCDataChannel): void {
     channel.onopen = () => this.onChannelOpen?.();
-    channel.onmessage = (e) => this.onChannelMessage?.(e.data);
+    channel.onmessage = (e) => {
+      try {
+        const msg = JSON.parse(e.data);
+        if (msg.t === 'msg') this.onChannelMessage?.(msg.text);
+        if (msg.t === 'id')  this.onPeerIdentity?.(msg.id);
+      } catch {
+        // fallback: treat as raw text
+        this.onChannelMessage?.(e.data);
+      }
+    };
     channel.onclose = () => this.onChannelClose?.();
   }
 }

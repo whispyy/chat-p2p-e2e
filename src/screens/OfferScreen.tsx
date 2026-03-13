@@ -15,8 +15,8 @@ export function OfferScreen({ offerCode, isGathering, onSubmitAnswer, onBack }: 
 
   const handleConnect = async () => {
     setIsConnecting(true);
-    await onSubmitAnswer(answerInput);
-    setIsConnecting(false);
+    await onSubmitAnswer(answerInput.trim());
+    // intentionally no setIsConnecting(false) — component unmounts on connected or error
   };
 
   return (

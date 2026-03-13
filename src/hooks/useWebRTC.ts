@@ -3,12 +3,15 @@ import { WebRTCService } from '../services/webrtc.service';
 import { ChatService } from '../services/chat.service';
 import type { ConnectionState } from '../types';
 import { decodeSignal, encodeSignal } from '../utils/encoding';
+import { getMyId } from '../services/identity.service';
+import { upsertContact } from '../services/storage.service';
 
 export interface WebRTCHandle {
   state: ConnectionState;
   errorMessage: string;
   offerCode: string;
   answerCode: string;
+  peerId: string;
   chatService: ChatService | null;
   startOffer: () => Promise<void>;
   submitAnswer: (code: string) => Promise<void>;
@@ -23,9 +26,9 @@ export function useWebRTC(): WebRTCHandle {
   const [offerCode, setOfferCode] = useState('');
   const [answerCode, setAnswerCode] = useState('');
   const [chatService, setChatService] = useState<ChatService | null>(null);
+  const [peerId, setPeerId] = useState('');
 
   const webrtcRef = useRef<WebRTCService | null>(null);
-  // Incremented on every reset so stale async closures can bail out early
   const sessionRef = useRef(0);
 
   const reset = useCallback(() => {
@@ -37,7 +40,25 @@ export function useWebRTC(): WebRTCHandle {
     setOfferCode('');
     setAnswerCode('');
     setChatService(null);
+    setPeerId('');
   }, []);
+
+  /** Wires identity exchange onto a freshly-opened WebRTCService. */
+  const attachIdentityHandlers = useCallback((webrtc: WebRTCService, session: number) => {
+    webrtc.onChannelOpen = () => {
+      if (session !== sessionRef.current) return;
+      webrtc.sendIdentity(getMyId());
+      const chat = new ChatService(webrtc);
+      setChatService(chat);
+      setState('connected');
+    };
+
+    webrtc.onPeerIdentity = (id: string) => {
+      if (session !== sessionRef.current) return;
+      upsertContact(id);
+      setPeerId(id);
+    };
+  }, []); // deps: sessionRef (stable ref), setChatService/setState/setPeerId (stable setters), module-level imports
 
   const startOffer = useCallback(async () => {
     setState('gathering');
@@ -45,13 +66,7 @@ export function useWebRTC(): WebRTCHandle {
     const session = ++sessionRef.current;
     const webrtc = new WebRTCService();
     webrtcRef.current = webrtc;
-
-    webrtc.onChannelOpen = () => {
-      if (session !== sessionRef.current) return;
-      const chat = new ChatService(webrtc);
-      setChatService(chat);
-      setState('connected');
-    };
+    attachIdentityHandlers(webrtc, session);
 
     try {
       const offer = await webrtc.createOffer();
@@ -63,7 +78,7 @@ export function useWebRTC(): WebRTCHandle {
       setErrorMessage(err instanceof Error ? err.message : 'Failed to create offer');
       setState('error');
     }
-  }, []);
+  }, [attachIdentityHandlers]);
 
   const submitAnswer = useCallback(async (code: string) => {
     const webrtc = webrtcRef.current;
@@ -88,13 +103,7 @@ export function useWebRTC(): WebRTCHandle {
     const session = ++sessionRef.current;
     const webrtc = new WebRTCService();
     webrtcRef.current = webrtc;
-
-    webrtc.onChannelOpen = () => {
-      if (session !== sessionRef.current) return;
-      const chat = new ChatService(webrtc);
-      setChatService(chat);
-      setState('connected');
-    };
+    attachIdentityHandlers(webrtc, session);
 
     try {
       const offer = decodeSignal(code);
@@ -107,7 +116,7 @@ export function useWebRTC(): WebRTCHandle {
       setErrorMessage(err instanceof Error ? err.message : 'Invalid offer code');
       setState('error');
     }
-  }, []);
+  }, [attachIdentityHandlers]);
 
-  return { state, errorMessage, offerCode, answerCode, chatService, startOffer, submitAnswer, startJoin, submitOffer, reset };
+  return { state, errorMessage, offerCode, answerCode, peerId, chatService, startOffer, submitAnswer, startJoin, submitOffer, reset };
 }

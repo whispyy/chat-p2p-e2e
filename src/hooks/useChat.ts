@@ -1,15 +1,38 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ChatService } from '../services/chat.service';
 import type { Message } from '../types';
+import { getMessages, appendMessage } from '../services/storage.service';
 
-export function useChat(chatService: ChatService | null, onDisconnect?: () => void) {
-  const [messages, setMessages] = useState<Message[]>([]);
+export function useChat(
+  chatService: ChatService | null,
+  onDisconnect?: () => void,
+  contactId?: string,
+) {
+  // Pre-load stored history when we know who we're talking to.
+  // contactId starts as undefined (identity exchange is async) so the lazy
+  // initializer often runs before we know the peer — handle that below.
+  const [messages, setMessages] = useState<Message[]>(() =>
+    contactId ? getMessages(contactId) : []
+  );
+
+  // When contactId first becomes available (after identity handshake),
+  // prepend stored history to any messages already in state.
+  const historyLoaded = useRef(!!contactId);
+  useEffect(() => {
+    if (contactId && !historyLoaded.current) {
+      historyLoaded.current = true;
+      const stored = getMessages(contactId);
+      const storedIds = new Set(stored.map((m) => m.id));
+      setMessages((prev) => [...stored, ...prev.filter((m) => !storedIds.has(m.id))]);
+    }
+  }, [contactId]);
 
   useEffect(() => {
     if (!chatService) return;
 
     chatService.onMessage = (message) => {
       setMessages((prev) => [...prev, message]);
+      if (contactId) appendMessage(contactId, message);
     };
     chatService.onClose = () => {
       onDisconnect?.();
@@ -19,15 +42,16 @@ export function useChat(chatService: ChatService | null, onDisconnect?: () => vo
       chatService.onMessage = null;
       chatService.onClose = null;
     };
-  }, [chatService, onDisconnect]);
+  }, [chatService, onDisconnect, contactId]);
 
   const send = useCallback(
     (text: string) => {
       if (!chatService) return;
       const message = chatService.send(text);
       setMessages((prev) => [...prev, message]);
+      if (contactId) appendMessage(contactId, message);
     },
-    [chatService]
+    [chatService, contactId],
   );
 
   return { messages, send };

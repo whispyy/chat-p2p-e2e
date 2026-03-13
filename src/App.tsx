@@ -1,19 +1,31 @@
+import { useEffect, useState } from 'react';
 import styled, { createGlobalStyle } from 'styled-components';
 import { useWebRTC } from './hooks/useWebRTC';
 import { HomeScreen } from './screens/HomeScreen';
+import { ContactsScreen } from './screens/ContactsScreen';
 import { OfferScreen } from './screens/OfferScreen';
 import { JoinScreen } from './screens/JoinScreen';
 import { ChatScreen } from './screens/ChatScreen';
+import { getContacts } from './services/storage.service';
+import type { Contact } from './types';
 
 export function App() {
-  const { state, errorMessage, offerCode, answerCode, chatService, startOffer, submitAnswer, startJoin, submitOffer, reset } = useWebRTC();
+  const { state, errorMessage, offerCode, answerCode, peerId, chatService, startOffer, submitAnswer, startJoin, submitOffer, reset } = useWebRTC();
+  const [contacts, setContacts] = useState<Contact[]>(() => getContacts());
+
+  // Refresh contacts list whenever we return to idle (after a chat ends or on first load)
+  useEffect(() => {
+    if (state === 'idle') setContacts(getContacts());
+  }, [state]);
 
   return (
     <>
       <GlobalStyle />
       <Shell>
         {state === 'idle' && (
-          <HomeScreen onNewChat={startOffer} onJoinChat={startJoin} />
+          contacts.length > 0
+            ? <ContactsScreen contacts={contacts} onNewChat={startOffer} onJoinChat={startJoin} />
+            : <HomeScreen onNewChat={startOffer} onJoinChat={startJoin} />
         )}
         {(state === 'gathering' || state === 'awaiting_answer') && (
           <OfferScreen
@@ -32,7 +44,7 @@ export function App() {
           />
         )}
         {state === 'connected' && chatService && (
-          <ChatScreen chatService={chatService} onEnd={reset} />
+          <ChatScreen chatService={chatService} peerId={peerId} onEnd={reset} />
         )}
         {state === 'error' && (
           <ErrorScreen message={errorMessage} onBack={reset} />
@@ -62,11 +74,12 @@ const ErrorContainer = styled.div`
   padding: 32px;
   gap: 16px;
   text-align: center;
+  background: #0a1628;
 `;
 
 const ErrorIcon = styled.div`font-size: 48px;`;
-const ErrorTitle = styled.h2`margin: 0; font-size: 20px; font-weight: 700; color: #111;`;
-const ErrorMessage = styled.p`margin: 0; font-size: 15px; color: #888; line-height: 1.5;`;
+const ErrorTitle = styled.h2`margin: 0; font-size: 20px; font-weight: 700; color: white;`;
+const ErrorMessage = styled.p`margin: 0; font-size: 15px; color: rgba(255,255,255,0.45); line-height: 1.5;`;
 
 const BackButton = styled.button`
   margin-top: 8px;
@@ -102,7 +115,6 @@ const Shell = styled.div`
   margin: 0 auto;
   background: #0a1628;
 
-  /* on desktop: show as a phone-like card */
   @media (min-width: 520px) {
     height: calc(100% - 48px);
     margin-top: 24px;
