@@ -93,6 +93,11 @@ Plain-text fallback is handled for forward compatibility.
 - Contacts created automatically on first connection with a new peer
 - Conversation history saved locally and loaded on reconnect
 - Contacts screen replaces the home screen after the first conversation
+- Settings panel (gear icon) on the contacts screen:
+  - **Export backup** — downloads a versioned JSON file (`peer-chat-backup-YYYY-MM-DD.json`) containing identity, contacts, and full message history
+  - **Import backup** — restores from a previously exported file; acts as full device migration (identity preserved)
+  - **Reset all data** — removes all `peer-chat:*` keys from `localStorage` after inline confirmation
+- **Restore from backup** shortcut on the home screen for fresh-install migrations
 
 ### Design
 - Dark theme throughout: home, contacts, offer, and join screens
@@ -124,7 +129,7 @@ src/
     webrtc.service.ts     WebRTC lifecycle, ICE, DataChannel, JSON wire protocol
     chat.service.ts       Message creation and routing over the DataChannel
     identity.service.ts   UUID generation, shortId, defaultPeerName
-    storage.service.ts    Contacts + message CRUD (localStorage)
+    storage.service.ts    Contacts + message CRUD, export/import/clear (localStorage)
   utils/
     encoding.ts           encodeSignal / decodeSignal (base64 JSON SDP)
     share.ts              Web Share API with clipboard fallback
@@ -138,7 +143,7 @@ src/
     useWebRTC.ts          Connection state machine + identity wiring
     useChat.ts            Messages state + persistence
   screens/
-    HomeScreen.tsx        First-launch: new chat / join chat
+    HomeScreen.tsx        First-launch: new chat / join chat / restore from backup
     ContactsScreen.tsx    Returning user: contacts list + actions
     OfferScreen.tsx       Alice: generate and share offer, paste answer
     JoinScreen.tsx        Bob: paste offer, share answer
@@ -147,6 +152,7 @@ src/
     Message.tsx           Single message bubble (grouped radius, formatting)
     MessageInput.tsx      Auto-growing textarea + send button
     CodeBlock.tsx         Dark-themed code area for offer/answer codes
+    SettingsModal.tsx     Bottom sheet: export / import / reset data
   types/
     index.ts              ConnectionState, Message, MessagePosition, Contact
 ```
@@ -220,3 +226,5 @@ npm run preview  # serve the production build locally
 | `user-scalable=no` in viewport | Prevents browser zoom on input focus across all mobile browsers |
 | Formatting via custom pipeline (no library) | Zero dependency; easily extensible by appending to `formatters.ts` |
 | `overflow: hidden` on html/body/#root | Prevents body-level scrollbar; scrolling managed per-container |
+| Separate `peer-chat:msgs:<id>` keys | Contacts store is metadata-only; `appendMessage` reads/writes one contact's messages instead of the full history of all contacts |
+| Export includes identity UUID | Enables full device migration — peer contacts will still recognise the restored device |

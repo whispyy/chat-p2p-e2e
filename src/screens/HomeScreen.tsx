@@ -1,4 +1,6 @@
+import { useRef, useState } from 'react';
 import styled, { keyframes } from 'styled-components';
+import { importData } from '../services/storage.service';
 
 interface HomeScreenProps {
   onNewChat: () => void;
@@ -6,6 +8,26 @@ interface HomeScreenProps {
 }
 
 export function HomeScreen({ onNewChat, onJoinChat }: HomeScreenProps) {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [importError, setImportError] = useState('');
+
+  const handleImportFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImportError('');
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        importData(reader.result as string);
+        window.location.reload();
+      } catch (err) {
+        setImportError(err instanceof Error ? err.message : 'Invalid backup file.');
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  };
+
   return (
     <Container>
       <BlobA />
@@ -48,6 +70,22 @@ export function HomeScreen({ onNewChat, onJoinChat }: HomeScreenProps) {
           <SecondaryButton onClick={onJoinChat}>
             Join a chat
           </SecondaryButton>
+          <ImportButton onClick={() => fileInputRef.current?.click()}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+              <polyline points="17 8 12 3 7 8" />
+              <line x1="12" y1="3" x2="12" y2="15" />
+            </svg>
+            Restore from backup
+          </ImportButton>
+          {importError && <ImportError>{importError}</ImportError>}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".json,application/json"
+            style={{ display: 'none' }}
+            onChange={handleImportFile}
+          />
         </Actions>
       </Content>
     </Container>
@@ -229,6 +267,37 @@ const PrimaryButton = styled.button`
     transform: scale(0.98);
     box-shadow: 0 2px 12px rgba(0, 0, 0, 0.2);
   }
+`;
+
+const ImportButton = styled.button`
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  width: 100%;
+  padding: 13px 24px;
+  border-radius: 16px;
+  border: none;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.3);
+  font-size: 14px;
+  font-weight: 400;
+  cursor: pointer;
+  letter-spacing: -0.1px;
+  transition: color 0.15s;
+
+  &:active { color: rgba(255, 255, 255, 0.6); }
+`;
+
+const ImportError = styled.p`
+  margin: 0;
+  font-size: 12px;
+  color: #ff5a5a;
+  text-align: center;
+  padding: 8px 12px;
+  background: rgba(255, 90, 90, 0.08);
+  border-radius: 8px;
+  border: 1px solid rgba(255, 90, 90, 0.2);
 `;
 
 const SecondaryButton = styled.button`

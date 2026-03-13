@@ -1,4 +1,9 @@
-const MY_ID_KEY = 'peer-chat:my-id';
+export const MY_ID_KEY = 'peer-chat:my-id';
+
+/** Overwrites the stored identity (used by backup restore). */
+export function setMyId(id: string): void {
+  localStorage.setItem(MY_ID_KEY, id);
+}
 
 /** Returns this device's persistent ID, generating one on first call. */
 export function getMyId(): string {
