@@ -2,6 +2,7 @@ import { useState } from 'react';
 import styled, { css, keyframes } from 'styled-components';
 import type { Message as MessageType, MessagePosition } from '../types';
 import { parseMessage, renderSegments } from '../utils/formatting';
+import { ImageViewer } from './ImageViewer';
 
 interface MessageProps {
   message: MessageType;
@@ -28,6 +29,7 @@ function getBorderRadius(fromMe: boolean, position: MessagePosition): string {
 export function Message({ message, position }: MessageProps) {
   const showMeta = position === 'solo' || position === 'last';
   const [showTooltip, setShowTooltip] = useState(false);
+  const borderRadius = getBorderRadius(message.fromMe, position);
 
   const handleTap = () => {
     if (!message.fromMe) return;
@@ -39,10 +41,15 @@ export function Message({ message, position }: MessageProps) {
     <Wrapper $fromMe={message.fromMe} $position={position}>
       <Bubble
         $fromMe={message.fromMe}
-        $borderRadius={getBorderRadius(message.fromMe, position)}
+        $borderRadius={borderRadius}
+        $isImage={!!message.image}
         onClick={handleTap}
       >
-        <Text>{renderSegments(parseMessage(message.text))}</Text>
+        {message.image ? (
+          <ImageContent image={message.image} />
+        ) : (
+          <Text>{renderSegments(parseMessage(message.text))}</Text>
+        )}
       </Bubble>
       {showMeta && (
         <Meta $fromMe={message.fromMe}>
@@ -72,15 +79,45 @@ export function Message({ message, position }: MessageProps) {
   );
 }
 
+function ImageContent({ image }: { image: NonNullable<MessageType['image']> }) {
+  const [viewerOpen, setViewerOpen] = useState(false);
+
+
+  if (image.progress !== undefined || !image.url) {
+    const pct = image.progress ?? 0;
+    return (
+      <ProgressBox>
+        <ProgressLabel>{pct}%</ProgressLabel>
+        <ProgressTrack>
+          <ProgressFill style={{ width: `${pct}%` }} />
+        </ProgressTrack>
+      </ProgressBox>
+    );
+  }
+
+  return (
+    <>
+      <BubbleImage
+        src={image.url}
+        alt="Shared image"
+        onClick={() => setViewerOpen(true)}
+      />
+      {viewerOpen && (
+        <ImageViewer
+          src={image.url}
+          mimeType={image.mimeType}
+          onClose={() => setViewerOpen(false)}
+        />
+      )}
+    </>
+  );
+}
+
+// ─── Animations ───────────────────────────────────────────────────────────
+
 const fadeSlideIn = keyframes`
-  from {
-    opacity: 0;
-    transform: translateY(6px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
 `;
 
 const tooltipFade = keyframes`
@@ -89,6 +126,8 @@ const tooltipFade = keyframes`
   85% { opacity: 1; transform: translateY(0); }
   100% { opacity: 0; transform: translateY(-2px); }
 `;
+
+// ─── Styles ───────────────────────────────────────────────────────────────
 
 const Wrapper = styled.div<{ $fromMe: boolean; $position: MessagePosition }>`
   display: flex;
@@ -99,11 +138,13 @@ const Wrapper = styled.div<{ $fromMe: boolean; $position: MessagePosition }>`
   position: relative;
 `;
 
-const Bubble = styled.div<{ $fromMe: boolean; $borderRadius: string }>`
+const Bubble = styled.div<{ $fromMe: boolean; $borderRadius: string; $isImage: boolean }>`
   max-width: 75%;
-  padding: 9px 13px;
   border-radius: ${({ $borderRadius }) => $borderRadius};
+  overflow: hidden;
   word-break: break-word;
+
+  ${({ $isImage }) => !$isImage && css`padding: 9px 13px;`}
 
   ${({ $fromMe }) =>
     $fromMe
@@ -152,4 +193,39 @@ const Tooltip = styled.div<{ $fromMe: boolean }>`
   animation: ${tooltipFade} 2s ease-in-out forwards;
   pointer-events: none;
   ${({ $fromMe }) => $fromMe && 'align-self: flex-end;'}
+`;
+
+const BubbleImage = styled.img`
+  display: block;
+  max-width: 100%;
+  max-height: 320px;
+  object-fit: cover;
+  cursor: pointer;
+`;
+
+const ProgressBox = styled.div`
+  width: 180px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+`;
+
+const ProgressLabel = styled.span`
+  font-size: 12px;
+  opacity: 0.7;
+`;
+
+const ProgressTrack = styled.div`
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.25);
+  overflow: hidden;
+`;
+
+const ProgressFill = styled.div`
+  height: 100%;
+  border-radius: 2px;
+  background: currentColor;
+  transition: width 0.15s ease;
 `;
