@@ -25,11 +25,18 @@ export interface Message {
   fromMe: boolean;
   timestamp: number;
   delivered?: boolean;
+  /** Present for image messages. url is '' while the transfer is in progress. */
+  image?: {
+    url: string;
+    mimeType: string;
+    progress?: number; // 0–100 while receiving; absent when complete
+  };
 }
 
 export interface ChatServiceEvents {
-  onMessage: (message: Message) => void;
-  onClose: () => void;
+  onMessage: ((message: Message) => void) | null;
+  onMessageUpdate: ((id: string, updater: (prev: Message) => Message) => void) | null;
+  onClose: (() => void) | null;
 }
 
 export type CallState = 'idle' | 'outgoing_ringing' | 'incoming_ringing' | 'negotiating' | 'active';

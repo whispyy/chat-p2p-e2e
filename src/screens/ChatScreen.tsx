@@ -33,7 +33,7 @@ interface ChatScreenProps {
 }
 
 export function ChatScreen({ chatService, peerId, onEnd, isOnline, callState, callDuration, isMuted, onStartCall, onHangUp, onToggleMute }: ChatScreenProps) {
-  const { messages, send } = useChat(chatService, onEnd, peerId || undefined);
+  const { messages, send, sendImage } = useChat(chatService, onEnd, peerId || undefined);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -112,7 +112,7 @@ export function ChatScreen({ chatService, peerId, onEnd, isOnline, callState, ca
         <div ref={bottomRef} />
       </MessageList>
 
-      <MessageInput onSend={send} />
+      <MessageInput onSend={send} onSendImage={sendImage} />
     </Container>
   );
 }

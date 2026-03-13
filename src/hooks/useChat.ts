@@ -8,15 +8,16 @@ export function useChat(
   onDisconnect?: () => void,
   contactId?: string,
 ) {
-  // Pre-load stored history when we know who we're talking to.
-  // contactId starts as undefined (identity exchange is async) so the lazy
-  // initializer often runs before we know the peer — handle that below.
   const [messages, setMessages] = useState<Message[]>(() =>
     contactId ? getMessages(contactId) : []
   );
 
-  // When contactId first becomes available (after identity handshake),
-  // prepend stored history to any messages already in state.
+  // contactId arrives asynchronously (after identity handshake).
+  // If it wasn't set at mount, load stored history once it becomes available.
+  // Keep a ref to the latest messages so cleanup can revoke image blob URLs on session end
+  const messagesRef = useRef(messages);
+  useEffect(() => { messagesRef.current = messages; }, [messages]);
+
   const historyLoaded = useRef(!!contactId);
   useEffect(() => {
     if (contactId && !historyLoaded.current) {
@@ -34,6 +35,11 @@ export function useChat(
       // Only update React state — storage is handled by MeshNode at the transport layer
       setMessages((prev) => [...prev, message]);
     };
+
+    chatService.onMessageUpdate = (id, updater) => {
+      setMessages((prev) => prev.map((m) => (m.id === id ? updater(m) : m)));
+    };
+
     chatService.onClose = () => {
       onDisconnect?.();
     };
@@ -45,8 +51,13 @@ export function useChat(
 
     return () => {
       chatService.onMessage = null;
+      chatService.onMessageUpdate = null;
       chatService.onClose = null;
       chatService.onDelivered = null;
+      // Revoke all image blob URLs now that the session is over
+      messagesRef.current.forEach((m) => {
+        if (m.image?.url) URL.revokeObjectURL(m.image.url);
+      });
     };
   }, [chatService, onDisconnect, contactId]);
 
@@ -61,5 +72,16 @@ export function useChat(
     [chatService, contactId],
   );
 
-  return { messages, send };
+  const sendImage = useCallback(
+    (file: File) => {
+      if (!chatService) return;
+      chatService.sendImage(file).then((message) => {
+        setMessages((prev) => [...prev, message]);
+        // image messages intentionally not persisted
+      });
+    },
+    [chatService],
+  );
+
+  return { messages, send, sendImage };
 }
