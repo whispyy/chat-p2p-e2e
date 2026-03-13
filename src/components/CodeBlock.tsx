@@ -78,7 +78,7 @@ const StyledTextarea = styled.textarea`
   border-radius: 12px;
   border: 1.5px solid rgba(255, 255, 255, 0.1);
   font-family: 'SF Mono', 'Fira Code', 'Fira Mono', monospace;
-  font-size: 12px;
+  font-size: 16px;
   line-height: 1.6;
   resize: none;
   background: rgba(255, 255, 255, 0.05);

@@ -1,6 +1,9 @@
 import { useRef, useState } from 'react';
 import styled from 'styled-components';
 
+// coarse pointer = touchscreen (mobile/tablet), fine pointer = mouse (desktop)
+const isMobile = window.matchMedia('(pointer: coarse)').matches;
+
 interface MessageInputProps {
   onSend: (text: string) => void;
 }
@@ -33,9 +36,15 @@ export function MessageInput({ onSend }: MessageInputProps) {
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleSend();
+    if (e.key !== 'Enter') return;
+    if (isMobile) {
+      // Mobile: Enter = newline (natural). Send is button-only.
+    } else {
+      // Desktop: Enter sends, Shift+Enter inserts newline.
+      if (!e.shiftKey) {
+        e.preventDefault();
+        handleSend();
+      }
     }
   };
 
@@ -51,7 +60,6 @@ export function MessageInput({ onSend }: MessageInputProps) {
           onKeyDown={handleKeyDown}
           placeholder="Message"
           rows={1}
-          enterKeyHint="send"
           autoComplete="off"
           autoCorrect="on"
           spellCheck

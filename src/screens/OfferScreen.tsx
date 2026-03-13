@@ -68,7 +68,6 @@ const Container = styled.div`
   flex: 1;
   display: flex;
   flex-direction: column;
-  height: 100%;
   background: #0a1628;
 `;
 
