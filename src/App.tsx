@@ -10,13 +10,13 @@ import { getContacts } from './services/storage.service';
 import type { Contact } from './types';
 
 export function App() {
-  const { state, errorMessage, offerCode, answerCode, peerId, chatService, startOffer, submitAnswer, startJoin, submitOffer, reset } = useWebRTC();
+  const { state, errorMessage, offerCode, answerCode, peerId, chatService, startOffer, submitAnswer, startJoin, submitOffer, reset, reconnect, meshReady, connectedPeers, contactsVersion } = useWebRTC();
   const [contacts, setContacts] = useState<Contact[]>(() => getContacts());
 
-  // Refresh contacts list whenever we return to idle (after a chat ends or on first load)
+  // Refresh contacts list when returning to idle or when a background message arrives
   useEffect(() => {
     if (state === 'idle') setContacts(getContacts());
-  }, [state]);
+  }, [state, contactsVersion]);
 
   return (
     <>
@@ -24,7 +24,7 @@ export function App() {
       <Shell>
         {state === 'idle' && (
           contacts.length > 0
-            ? <ContactsScreen contacts={contacts} onNewChat={startOffer} onJoinChat={startJoin} />
+            ? <ContactsScreen contacts={contacts} onNewChat={startOffer} onJoinChat={startJoin} onReconnect={reconnect} meshReady={meshReady} connectedPeers={connectedPeers} />
             : <HomeScreen onNewChat={startOffer} onJoinChat={startJoin} />
         )}
         {(state === 'gathering' || state === 'awaiting_answer') && (
@@ -43,14 +43,27 @@ export function App() {
             onBack={reset}
           />
         )}
+        {state === 'reconnecting' && (
+          <ReconnectingScreen onBack={reset} />
+        )}
         {state === 'connected' && chatService && (
-          <ChatScreen chatService={chatService} peerId={peerId} onEnd={reset} />
+          <ChatScreen chatService={chatService} peerId={peerId} onEnd={reset} isOnline={connectedPeers.has(peerId)} />
         )}
         {state === 'error' && (
           <ErrorScreen message={errorMessage} onBack={reset} />
         )}
       </Shell>
     </>
+  );
+}
+
+function ReconnectingScreen({ onBack }: { onBack: () => void }) {
+  return (
+    <ErrorContainer>
+      <ErrorTitle>Reconnecting...</ErrorTitle>
+      <ErrorMessage>Searching for relay peers to re-establish connection.</ErrorMessage>
+      <BackButton onClick={onBack}>Cancel</BackButton>
+    </ErrorContainer>
   );
 }
 

@@ -31,16 +31,22 @@ export function useChat(
     if (!chatService) return;
 
     chatService.onMessage = (message) => {
+      // Only update React state — storage is handled by MeshNode at the transport layer
       setMessages((prev) => [...prev, message]);
-      if (contactId) appendMessage(contactId, message);
     };
     chatService.onClose = () => {
       onDisconnect?.();
+    };
+    chatService.onDelivered = (id) => {
+      setMessages((prev) =>
+        prev.map((m) => (m.id === id ? { ...m, delivered: true } : m)),
+      );
     };
 
     return () => {
       chatService.onMessage = null;
       chatService.onClose = null;
+      chatService.onDelivered = null;
     };
   }, [chatService, onDisconnect, contactId]);
 
@@ -49,6 +55,7 @@ export function useChat(
       if (!chatService) return;
       const message = chatService.send(text);
       setMessages((prev) => [...prev, message]);
+      // Store outgoing messages (incoming are stored by MeshNode)
       if (contactId) appendMessage(contactId, message);
     },
     [chatService, contactId],

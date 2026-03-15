@@ -8,9 +8,11 @@ export class WebRTCService {
   private channel: RTCDataChannel | null = null;
 
   onChannelOpen: (() => void) | null = null;
-  onChannelMessage: ((data: string) => void) | null = null;
+  onChannelMessage: ((data: string, id?: string) => void) | null = null;
   onChannelClose: (() => void) | null = null;
-  onPeerIdentity: ((id: string) => void) | null = null;
+  onPeerIdentity: ((id: string, pubkey?: string, sig?: string) => void) | null = null;
+  onMeshMessage: ((payload: unknown) => void) | null = null;
+  onAck: ((id: string) => void) | null = null;
 
   constructor() {
     this.pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
@@ -47,15 +49,30 @@ export class WebRTCService {
     await this.pc.setRemoteDescription(answer);
   }
 
-  send(text: string): void {
+  send(id: string, text: string): void {
     if (this.channel?.readyState === 'open') {
-      this.channel.send(JSON.stringify({ t: 'msg', text }));
+      this.channel.send(JSON.stringify({ t: 'msg', id, text }));
     }
   }
 
-  sendIdentity(id: string): void {
+  sendAck(id: string): void {
     if (this.channel?.readyState === 'open') {
-      this.channel.send(JSON.stringify({ t: 'id', id }));
+      this.channel.send(JSON.stringify({ t: 'ack', id }));
+    }
+  }
+
+  sendIdentity(id: string, pubkey?: string, sig?: string): void {
+    if (this.channel?.readyState === 'open') {
+      const msg: Record<string, string> = { t: 'id', id };
+      if (pubkey) msg.pubkey = pubkey;
+      if (sig) msg.sig = sig;
+      this.channel.send(JSON.stringify(msg));
+    }
+  }
+
+  sendRaw(data: string): void {
+    if (this.channel?.readyState === 'open') {
+      this.channel.send(data);
     }
   }
 
@@ -88,8 +105,10 @@ export class WebRTCService {
     channel.onmessage = (e) => {
       try {
         const msg = JSON.parse(e.data);
-        if (msg.t === 'msg') this.onChannelMessage?.(msg.text);
-        if (msg.t === 'id')  this.onPeerIdentity?.(msg.id);
+        if (msg.t === 'msg') this.onChannelMessage?.(msg.text, msg.id);
+        if (msg.t === 'id')  this.onPeerIdentity?.(msg.id, msg.pubkey, msg.sig);
+        if (msg.t === 'mesh') this.onMeshMessage?.(msg.payload);
+        if (msg.t === 'ack') this.onAck?.(msg.id);
       } catch {
         // fallback: treat as raw text
         this.onChannelMessage?.(e.data);

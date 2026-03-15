@@ -41,6 +41,7 @@ export function upsertContact(id: string, update: { name?: string } = {}): Conta
     name: update.name ?? existing?.name ?? defaultPeerName(id),
     lastSeen: Date.now(),
     lastMessage: existing?.lastMessage ?? null,
+    unreadCount: existing?.unreadCount ?? 0,
   };
   writeAllContacts(all);
   return all[id];
@@ -51,9 +52,12 @@ export function appendMessage(contactId: string, message: Message): void {
   const all = readAllContacts();
   if (!all[contactId]) return;
 
-  // Update only contact metadata — no full message list needed
+  // Update contact metadata
   all[contactId].lastSeen = message.timestamp;
   all[contactId].lastMessage = { text: message.text, fromMe: message.fromMe };
+  if (!message.fromMe) {
+    all[contactId].unreadCount = (all[contactId].unreadCount ?? 0) + 1;
+  }
   writeAllContacts(all);
 
   // Append to the per-contact message store
@@ -66,6 +70,15 @@ export function appendMessage(contactId: string, message: Message): void {
   }
   msgs.push(message);
   localStorage.setItem(key, JSON.stringify(msgs));
+}
+
+/** Resets unread count for a contact. */
+export function markRead(contactId: string): void {
+  const all = readAllContacts();
+  if (all[contactId]) {
+    all[contactId].unreadCount = 0;
+    writeAllContacts(all);
+  }
 }
 
 /** Returns stored messages for a contact, or an empty array. */

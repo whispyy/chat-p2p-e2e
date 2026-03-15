@@ -6,6 +6,7 @@ export type ConnectionState =
   | 'generating_answer'
   | 'has_answer'
   | 'connected'
+  | 'reconnecting'
   | 'error';
 
 export type MessagePosition = 'solo' | 'first' | 'middle' | 'last';
@@ -15,6 +16,7 @@ export interface Contact {
   name: string;       // display name (defaults to short ID)
   lastSeen: number;   // timestamp of last activity
   lastMessage: { text: string; fromMe: boolean } | null;
+  unreadCount: number;
 }
 
 export interface Message {
@@ -22,6 +24,7 @@ export interface Message {
   text: string;
   fromMe: boolean;
   timestamp: number;
+  delivered?: boolean;
 }
 
 export interface ChatServiceEvents {

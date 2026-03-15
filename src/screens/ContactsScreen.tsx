@@ -8,9 +8,12 @@ interface ContactsScreenProps {
   contacts: Contact[];
   onNewChat: () => void;
   onJoinChat: () => void;
+  onReconnect?: (peerId: string) => void;
+  meshReady?: boolean;
+  connectedPeers?: ReadonlySet<string>;
 }
 
-export function ContactsScreen({ contacts, onNewChat, onJoinChat }: ContactsScreenProps) {
+export function ContactsScreen({ contacts, onNewChat, onJoinChat, onReconnect, meshReady, connectedPeers }: ContactsScreenProps) {
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   return (
@@ -35,7 +38,12 @@ export function ContactsScreen({ contacts, onNewChat, onJoinChat }: ContactsScre
 
       <List>
         {contacts.map((contact) => (
-          <ContactRow key={contact.id} contact={contact} onReconnect={onNewChat} />
+          <ContactRow
+            key={contact.id}
+            contact={contact}
+            onTap={meshReady && onReconnect ? () => onReconnect(contact.id) : onNewChat}
+            isOnline={connectedPeers?.has(contact.id) ?? false}
+          />
         ))}
       </List>
 
@@ -55,22 +63,29 @@ export function ContactsScreen({ contacts, onNewChat, onJoinChat }: ContactsScre
 
 // ─── Contact row ──────────────────────────────────────────────────────────
 
-function ContactRow({ contact, onReconnect }: { contact: Contact; onReconnect: () => void }) {
+function ContactRow({ contact, onTap, isOnline }: { contact: Contact; onTap: () => void; isOnline: boolean }) {
   const last = contact.lastMessage;
   const preview = last ? (last.fromMe ? `You: ${last.text}` : last.text) : 'No messages yet';
   const truncated = preview.length > 48 ? preview.slice(0, 48) + '…' : preview;
+  const unread = contact.unreadCount ?? 0;
 
   return (
-    <Row onClick={onReconnect}>
-      <Avatar $color={avatarColor(contact.id)}>
-        {shortId(contact.id).slice(0, 2)}
-      </Avatar>
+    <Row onClick={onTap}>
+      <AvatarWrapper>
+        <Avatar $color={avatarColor(contact.id)}>
+          {shortId(contact.id).slice(0, 2)}
+        </Avatar>
+        {isOnline && <OnlineDot />}
+      </AvatarWrapper>
       <RowBody>
         <RowTop>
           <ContactName>{contact.name}</ContactName>
-          <TimeStamp>{formatTime(contact.lastSeen)}</TimeStamp>
+          <TimeStamp $unread={unread > 0}>{isOnline ? 'online' : formatTime(contact.lastSeen)}</TimeStamp>
         </RowTop>
-        <Preview>{truncated}</Preview>
+        <PreviewRow>
+          <Preview $unread={unread > 0}>{truncated}</Preview>
+          {unread > 0 && <UnreadBadge>{unread > 99 ? '99+' : unread}</UnreadBadge>}
+        </PreviewRow>
       </RowBody>
     </Row>
   );
@@ -218,6 +233,22 @@ const Row = styled.div`
   }
 `;
 
+const AvatarWrapper = styled.div`
+  position: relative;
+  flex-shrink: 0;
+`;
+
+const OnlineDot = styled.div`
+  position: absolute;
+  bottom: 1px;
+  right: 1px;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: #34c759;
+  border: 2px solid #0f2044;
+`;
+
 const Avatar = styled.div<{ $color: string }>`
   width: 46px;
   height: 46px;
@@ -263,19 +294,44 @@ const ContactName = styled.span`
   text-overflow: ellipsis;
 `;
 
-const TimeStamp = styled.span`
+const TimeStamp = styled.span<{ $unread?: boolean }>`
   font-size: 12px;
-  color: rgba(255, 255, 255, 0.3);
+  color: ${({ $unread }) => $unread ? '#4f8ef7' : 'rgba(255, 255, 255, 0.3)'};
   flex-shrink: 0;
+  ${({ $unread }) => $unread && 'font-weight: 600;'}
 `;
 
-const Preview = styled.p`
+const PreviewRow = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 8px;
+`;
+
+const Preview = styled.p<{ $unread?: boolean }>`
   margin: 0;
   font-size: 13px;
-  color: rgba(255, 255, 255, 0.35);
+  color: ${({ $unread }) => $unread ? 'rgba(255, 255, 255, 0.7)' : 'rgba(255, 255, 255, 0.35)'};
+  ${({ $unread }) => $unread && 'font-weight: 600;'}
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  flex: 1;
+  min-width: 0;
+`;
+
+const UnreadBadge = styled.span`
+  flex-shrink: 0;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 10px;
+  background: #4f8ef7;
+  color: white;
+  font-size: 11px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 `;
 
 const Actions = styled.div`

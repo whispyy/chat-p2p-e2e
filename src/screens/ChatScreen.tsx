@@ -22,9 +22,10 @@ interface ChatScreenProps {
   chatService: ChatService;
   peerId: string;
   onEnd: () => void;
+  isOnline?: boolean;
 }
 
-export function ChatScreen({ chatService, peerId, onEnd }: ChatScreenProps) {
+export function ChatScreen({ chatService, peerId, onEnd, isOnline }: ChatScreenProps) {
   const { messages, send } = useChat(chatService, onEnd, peerId || undefined);
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -51,8 +52,9 @@ export function ChatScreen({ chatService, peerId, onEnd }: ChatScreenProps) {
           <HeaderText>
             <HeaderTitle>Secure Chat</HeaderTitle>
             <HeaderSub>
+              {isOnline && <StatusDot />}
               <LockIcon />
-              End-to-end encrypted · Direct
+              {isOnline ? 'Online · E2E encrypted' : 'End-to-end encrypted · Direct'}
             </HeaderSub>
           </HeaderText>
         </HeaderCenter>
@@ -174,6 +176,14 @@ const HeaderSub = styled.span`
   display: flex;
   align-items: center;
   gap: 3px;
+`;
+
+const StatusDot = styled.div`
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #34c759;
+  flex-shrink: 0;
 `;
 
 const Spacer = styled.div`

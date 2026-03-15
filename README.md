@@ -17,14 +17,15 @@ A browser-based, serverless P2P chat application. No accounts, no servers, no da
 
 | Layer | Choice |
 |---|---|
-| Framework | React 18 + TypeScript |
+| Framework | React 19 + TypeScript |
 | Styling | styled-components |
 | Bundler | Vite |
 | Transport | WebRTC DataChannel (DTLS-encrypted by default) |
 | ICE | Google public STUN only (`stun.l.google.com`) |
 | Signaling | Manual offer/answer copy-paste + Web Share API |
-| Identity | `crypto.randomUUID()` stored in `localStorage` |
-| Persistence | `localStorage` (contacts + message history) |
+| Identity | ECDSA P-256 keypair (WebCrypto), peerId = SHA-256 of public key |
+| Persistence | `localStorage` (contacts, message history, keypair, mesh registry) |
+| Mesh | Gossip-based peer registry with relay-based reconnection |
 
 ---
 
@@ -36,40 +37,72 @@ WebRTC requires both peers to exchange connection metadata (SDP offer/answer) be
 
 ```
 Alice                                     Bob
-  │  "Start new chat"                      │
-  │  → gathers ICE candidates (~2s)        │
-  │  → generates offer code               │
-  │  [Share / Copy] ──── any channel ───► │
-  │                                        │  opens app → "Join a chat"
-  │                                        │  pastes offer → generates answer
-  │  ◄──────────── any channel ─── [Share]│
-  │  pastes answer → Connect              │
-  │                                        │
-  │◄══════ WebRTC DataChannel (DTLS) ═════│
+  |  "Start new chat"                      |
+  |  -> gathers ICE candidates (~2s)       |
+  |  -> generates offer code               |
+  |  [Share / Copy] ---- any channel ----> |
+  |                                        |  opens app -> "Join a chat"
+  |                                        |  pastes offer -> generates answer
+  |  <------------ any channel --- [Share] |
+  |  pastes answer -> Connect              |
+  |                                        |
+  |<====== WebRTC DataChannel (DTLS) =====>|
 ```
 
 Once connected, **all data flows peer-to-peer**. The STUN server is only contacted during ICE candidate gathering and never sees message content.
 
-### Identity & contacts
+### Identity & mesh
 
-On first launch, each device generates a persistent UUID (`crypto.randomUUID()`) stored in `localStorage`. When a connection is established, both peers exchange their UUIDs over the DataChannel as the first message (`{ t: 'id', id }`).
+On first launch, each device generates an ECDSA P-256 keypair via the WebCrypto API, persisted as JWK in `localStorage`. The peer ID is derived as `hex(SHA-256(raw public key bytes))`, giving each device a stable cryptographic identity.
 
-This UUID becomes the contact's stable identity. Subsequent reconnections with the same peer match to the same contact, loading their conversation history automatically.
+When a connection is established, both peers exchange their peer IDs along with their public key and a signature over the peer ID (`{ t: 'id', id, pubkey, sig }`). This allows peers to verify each other's identity cryptographically.
 
-### Message persistence
+Connected peers are registered in the **mesh layer**, which maintains a gossip-based registry of known peers. The mesh keeps WebRTC connections alive in the background even when the user navigates away from a chat, enabling instant reconnection.
 
-Messages are stored per-contact in `localStorage` under `peer-chat:contacts`. Both sent and received messages are written on every exchange. History loads automatically when reconnecting to a known peer.
+### Mesh reconnection
+
+When a user taps a contact, the app first checks if the peer is already connected in the mesh. If so, the chat reopens instantly on the existing connection — no new SDP exchange needed.
+
+If the direct connection is gone but other peers are available in the mesh, the app attempts relay-based reconnection: it authenticates via challenge-response (signing with the ECDSA key) and bridges SDP signaling through an active peer. If no relay peers are available, it falls back to the manual offer/answer flow.
+
+### Gossip protocol
+
+The mesh layer runs three background processes on connected peers:
+
+- **Gossip rounds** (every 3s) — pick up to 3 random peers, exchange digest of known peer records (peerId + lamport clock), pull/push missing or newer entries
+- **Heartbeat** (every 5s) — broadcast alive signal to all connected peers
+- **Failure detection** — online -> suspected (10s no heartbeat) -> offline (30s) -> evicted (5min)
+
+The peer registry is cached in `localStorage` (`peer-chat:registry`) and restored on startup.
 
 ### Wire protocol
 
 DataChannel messages are JSON-encoded envelopes:
 
 ```json
-{ "t": "msg", "text": "hello" }   // chat message
-{ "t": "id",  "id": "<uuid>" }    // identity handshake (sent on channel open)
+{ "t": "msg", "id": "<uuid>", "text": "hello" }         // chat message (with sender-generated ID)
+{ "t": "id",  "id": "<peerId>", "pubkey": "...", "sig": "..." }  // identity handshake
+{ "t": "ack", "id": "<uuid>" }                           // delivery receipt
+{ "t": "mesh", "payload": { "type": "HEARTBEAT", ... } } // mesh protocol messages
 ```
 
+Mesh message types: `GOSSIP_DIGEST`, `GOSSIP_PUSH`, `GOSSIP_PULL`, `HEARTBEAT`, `RECONNECT_REQUEST`, `RECONNECT_ACCEPTED`, `RECONNECT_REJECTED`, `RELAY_OFFER`, `RELAY_ANSWER`, `RELAY_ICE`, `CHALLENGE`, `CHALLENGE_RESPONSE`.
+
 Plain-text fallback is handled for forward compatibility.
+
+### Message delivery receipts
+
+When a peer receives a chat message, it immediately sends back an `ack` with the message ID. The sender sees the delivery status:
+
+- **Single checkmark** (grey) — message sent
+- **Double checkmark** (blue) — message delivered to the peer
+
+### Online status
+
+The mesh layer tracks which peers have active WebRTC connections. This is surfaced in the UI:
+
+- **Contacts screen** — green dot on avatar + "online" label for connected peers
+- **Chat screen** — green dot + "Online" in the header when the peer is connected
 
 ---
 
@@ -77,6 +110,7 @@ Plain-text fallback is handled for forward compatibility.
 
 ### Messaging
 - Send and receive text messages in real time over WebRTC DataChannel
+- Delivery receipts: single check (sent) / double check (delivered)
 - Shift+Enter inserts a newline on mobile; Enter sends on desktop (detected via `pointer: coarse`)
 - Auto-growing textarea (expands up to 140px, then scrolls internally)
 - Message formatting parsed inline:
@@ -84,14 +118,16 @@ Plain-text fallback is handled for forward compatibility.
   - `*italic*` or `_italic_`
   - `` `inline code` ``
   - `~~strikethrough~~`
-  - `https://...` → clickable link (opens in new tab)
+  - `https://...` -> clickable link (opens in new tab)
 - Newlines preserved visually in received messages
 - Grouped message bubbles: consecutive messages from the same sender share border-radius (iMessage-style), with a single timestamp per group
 
 ### Contacts & history
-- Persistent UUID-based identity per device (generated once, stored in `localStorage`)
+- Persistent ECDSA-based identity per device (generated once, stored in `localStorage`)
 - Contacts created automatically on first connection with a new peer
 - Conversation history saved locally and loaded on reconnect
+- Instant reconnection to online peers (tapping a contact reuses the mesh connection)
+- Online status indicator (green dot) on the contacts list
 - Contacts screen replaces the home screen after the first conversation
 - Settings panel (gear icon) on the contacts screen:
   - **Export backup** — downloads a versioned JSON file (`peer-chat-backup-YYYY-MM-DD.json`) containing identity, contacts, and full message history
@@ -105,7 +141,7 @@ Plain-text fallback is handled for forward compatibility.
 - Frosted glass header in chat with backdrop blur
 - Ambient animated blob background on dark screens
 - Subtle `fadeSlideIn` animation on incoming messages
-- Colored avatar per contact (deterministic from peer UUID)
+- Colored avatar per contact (deterministic from peer ID)
 - Last message preview and relative timestamp in contacts list
 
 ### Mobile
@@ -127,29 +163,36 @@ Plain-text fallback is handled for forward compatibility.
 src/
   services/
     webrtc.service.ts     WebRTC lifecycle, ICE, DataChannel, JSON wire protocol
-    chat.service.ts       Message creation and routing over the DataChannel
-    identity.service.ts   UUID generation, shortId, defaultPeerName
+    chat.service.ts       Message creation, routing, delivery receipts
+    identity.service.ts   ECDSA identity delegation, shortId, defaultPeerName
     storage.service.ts    Contacts + message CRUD, export/import/clear (localStorage)
+    mesh/
+      mesh-identity.ts    ECDSA P-256 keypair (WebCrypto), sign/verify, peerId derivation
+      gossip-transport.ts GossipTransport interface + MeshMessage type union
+      mesh-gossip.ts      Peer registry, gossip rounds, heartbeat, failure detection
+      mesh-reconnector.ts Relay-based reconnection with challenge-response auth
+      mesh-node.ts        Orchestrator: manages connections, routes mesh messages
+      index.ts            Barrel exports
   utils/
     encoding.ts           encodeSignal / decodeSignal (base64 JSON SDP)
     share.ts              Web Share API with clipboard fallback
     formatting/
       types.ts            Segment and Formatter interfaces
       formatters.ts       Ordered list of inline formatting rules
-      parser.ts           Pipeline: string → Segment[]
-      renderer.tsx        Segment[] → React nodes
+      parser.ts           Pipeline: string -> Segment[]
+      renderer.tsx        Segment[] -> React nodes
       index.ts            Public re-exports
   hooks/
-    useWebRTC.ts          Connection state machine + identity wiring
-    useChat.ts            Messages state + persistence
+    useWebRTC.ts          Connection state machine + mesh integration + identity wiring
+    useChat.ts            Messages state + persistence + delivery receipts
   screens/
     HomeScreen.tsx        First-launch: new chat / join chat / restore from backup
-    ContactsScreen.tsx    Returning user: contacts list + actions
+    ContactsScreen.tsx    Returning user: contacts list + online status + actions
     OfferScreen.tsx       Alice: generate and share offer, paste answer
     JoinScreen.tsx        Bob: paste offer, share answer
-    ChatScreen.tsx        Live chat + message list
+    ChatScreen.tsx        Live chat + message list + online indicator
   components/
-    Message.tsx           Single message bubble (grouped radius, formatting)
+    Message.tsx           Single message bubble (grouped radius, formatting, delivery check)
     MessageInput.tsx      Auto-growing textarea + send button
     CodeBlock.tsx         Dark-themed code area for offer/answer codes
     SettingsModal.tsx     Bottom sheet: export / import / reset data
@@ -160,24 +203,42 @@ src/
 ### Connection state machine
 
 ```
-idle ──────────────────────────────────────► error
-  │                                            ▲
-  ├─[startOffer]──► gathering                  │
-  │                    │                       │
-  │              awaiting_answer ──────────────┤
-  │                    │                       │
-  │               [submitAnswer]               │
-  │                    └──────────► connected  │
-  │                                            │
-  └─[startJoin]──► joining                     │
-                      │                        │
-               generating_answer ──────────────┤
-                      │                        │
-                  has_answer ─────────────────►│
-                      │
-               [channel opens]
-                      └──────────► connected
+idle ----------------------------------------> error
+  |                                              ^
+  |-[startOffer]---> gathering                   |
+  |                    |                         |
+  |              awaiting_answer ----------------+
+  |                    |                         |
+  |               [submitAnswer]                 |
+  |                    +----------> connected    |
+  |                                              |
+  |-[startJoin]---> joining                      |
+  |                    |                         |
+  |             generating_answer ---------------+
+  |                    |                         |
+  |                has_answer ------------------>|
+  |                    |
+  |             [channel opens]
+  |                    +----------> connected
+  |
+  +-[reconnect]---> reconnecting --> connected
+                         |              ^
+                         |              |
+                         +-- (mesh has peer) -- instant reopen
+                         +-- (relay available) -- relay SDP
+                         +-- (fallback) ------> gathering
 ```
+
+### Mesh layer
+
+```
+UI -> useWebRTC -> MeshNode -> WebRTCService[] (multiple connections)
+                     |-- MeshIdentity (ECDSA keypair, challenge-response)
+                     |-- MeshGossip (registry, failure detection)
+                     +-- MeshReconnector (relay signaling)
+```
+
+The mesh layer is **additive** — it sits alongside the existing code. The manual signaling flow (copy-paste SDP) remains the primary way to establish first contact. The mesh kicks in for reconnection and peer discovery after that.
 
 ### Formatting pipeline
 
@@ -194,8 +255,8 @@ The `parser.ts` pipeline applies formatters in order — earlier entries consume
 
 - **STUN only, no TURN** — connections fail (~20% of cases) when both peers are behind symmetric NAT (common on mobile data / corporate networks). Adding a TURN server would resolve this.
 - **Offer lifetime** — ICE candidates (especially STUN-derived) expire when NAT bindings time out (typically 30 seconds to a few minutes). The offering tab must remain open until the peer connects.
-- **localStorage limits** — browsers typically cap `localStorage` at 5–10 MB. Long conversations with many peers may eventually hit this limit. Migrating to `IndexedDB` is the natural next step.
-- **No message delivery confirmation** — there is no read receipt or delivery guarantee beyond the DataChannel's built-in reliability.
+- **localStorage limits** — browsers typically cap `localStorage` at 5-10 MB. Long conversations with many peers may eventually hit this limit. Migrating to `IndexedDB` is the natural next step.
+- **Mesh reconnection requires at least 3 peers** — relay-based reconnection only works when a third peer can bridge signaling. With only 2 devices and both offline, manual SDP exchange is required. However, if both devices stay on the app, the mesh connection persists and instant reconnection works.
 - **No end-to-end encryption beyond DTLS** — WebRTC DataChannel is DTLS-encrypted at the transport layer. Application-level E2E encryption (e.g. with Web Crypto ECDH key exchange) is not yet implemented.
 
 ---
@@ -218,7 +279,9 @@ npm run preview  # serve the production build locally
 | WebRTC DataChannel | Browser-native, DTLS-encrypted, NAT-traversing, no server needed for data |
 | STUN only (no TURN) | Avoids any relay infrastructure; ~20% failure rate accepted for MVP |
 | Manual signaling | Truly serverless; Web Share API makes it low-friction on mobile |
-| `crypto.randomUUID()` for identity | No keypair complexity for MVP; sufficient for contact matching; upgradeable to ECDH later |
+| ECDSA P-256 for identity | Cryptographic peer identity; enables challenge-response auth for mesh reconnection; replaces plain UUID |
+| Gossip-based mesh | Decentralized peer discovery; no coordinator needed; tolerant of partial connectivity |
+| Relay reconnection | Reuses existing peer connections as signaling bridges; avoids manual re-exchange when possible |
 | `localStorage` for persistence | Zero-dependency, synchronous, sufficient for MVP message volumes |
 | Single-page state machine (no router) | Linear flow with few screens; router adds no value at this scale |
 | Enter sends on desktop, not mobile | `pointer: coarse` detects touchscreen reliably; mobile keyboard shows return key |
@@ -227,4 +290,6 @@ npm run preview  # serve the production build locally
 | Formatting via custom pipeline (no library) | Zero dependency; easily extensible by appending to `formatters.ts` |
 | `overflow: hidden` on html/body/#root | Prevents body-level scrollbar; scrolling managed per-container |
 | Separate `peer-chat:msgs:<id>` keys | Contacts store is metadata-only; `appendMessage` reads/writes one contact's messages instead of the full history of all contacts |
-| Export includes identity UUID | Enables full device migration — peer contacts will still recognise the restored device |
+| Export includes identity | Enables full device migration — peer contacts will still recognise the restored device |
+| Delivery receipts via `ack` | Lightweight; sender includes message ID, receiver echoes it back; no server needed |
+| Keep mesh connections alive on chat exit | Enables instant reconnection and background gossip/heartbeat without re-establishing WebRTC |

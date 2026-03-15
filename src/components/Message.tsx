@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import styled, { css, keyframes } from 'styled-components';
 import type { Message as MessageType, MessagePosition } from '../types';
 import { parseMessage, renderSegments } from '../utils/formatting';
@@ -25,20 +26,47 @@ function getBorderRadius(fromMe: boolean, position: MessagePosition): string {
 }
 
 export function Message({ message, position }: MessageProps) {
-  const showTime = position === 'solo' || position === 'last';
+  const showMeta = position === 'solo' || position === 'last';
+  const [showTooltip, setShowTooltip] = useState(false);
+
+  const handleTap = () => {
+    if (!message.fromMe) return;
+    setShowTooltip(true);
+    setTimeout(() => setShowTooltip(false), 2000);
+  };
 
   return (
     <Wrapper $fromMe={message.fromMe} $position={position}>
       <Bubble
         $fromMe={message.fromMe}
         $borderRadius={getBorderRadius(message.fromMe, position)}
+        onClick={handleTap}
       >
         <Text>{renderSegments(parseMessage(message.text))}</Text>
       </Bubble>
-      {showTime && (
-        <Time $fromMe={message.fromMe}>
+      {showMeta && (
+        <Meta $fromMe={message.fromMe}>
           {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-        </Time>
+          {message.fromMe && (
+            <CheckMark>
+              {message.delivered ? (
+                <svg width="14" height="10" viewBox="0 0 16 10" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="1 5.5 4.5 9 4.5 9" />
+                  <polyline points="4.5 5.5 8 9 15 1" />
+                </svg>
+              ) : (
+                <svg width="10" height="10" viewBox="0 0 12 10" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="1 5.5 4.5 9 11 1" />
+                </svg>
+              )}
+            </CheckMark>
+          )}
+        </Meta>
+      )}
+      {showTooltip && (
+        <Tooltip $fromMe={message.fromMe}>
+          {message.delivered ? 'Delivered' : 'Sent'}
+        </Tooltip>
       )}
     </Wrapper>
   );
@@ -55,12 +83,20 @@ const fadeSlideIn = keyframes`
   }
 `;
 
+const tooltipFade = keyframes`
+  0% { opacity: 0; transform: translateY(-2px); }
+  15% { opacity: 1; transform: translateY(0); }
+  85% { opacity: 1; transform: translateY(0); }
+  100% { opacity: 0; transform: translateY(-2px); }
+`;
+
 const Wrapper = styled.div<{ $fromMe: boolean; $position: MessagePosition }>`
   display: flex;
   flex-direction: column;
   align-items: ${({ $fromMe }) => ($fromMe ? 'flex-end' : 'flex-start')};
   margin-top: ${({ $position }) => ($position === 'first' || $position === 'solo' ? '8px' : '2px')};
   animation: ${fadeSlideIn} 0.18s ease-out;
+  position: relative;
 `;
 
 const Bubble = styled.div<{ $fromMe: boolean; $borderRadius: string }>`
@@ -88,9 +124,32 @@ const Text = styled.p`
   line-height: 1.4;
 `;
 
-const Time = styled.span<{ $fromMe: boolean }>`
+const Meta = styled.span<{ $fromMe: boolean }>`
   font-size: 11px;
   color: #aaa;
   margin-top: 3px;
   padding: 0 4px;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  ${({ $fromMe }) => $fromMe && 'justify-content: flex-end;'}
+`;
+
+const CheckMark = styled.span`
+  display: inline-flex;
+  align-items: center;
+  color: #aaa;
+  line-height: 0;
+`;
+
+const Tooltip = styled.div<{ $fromMe: boolean }>`
+  font-size: 11px;
+  color: #888;
+  background: rgba(0, 0, 0, 0.06);
+  padding: 3px 8px;
+  border-radius: 6px;
+  margin-top: 2px;
+  animation: ${tooltipFade} 2s ease-in-out forwards;
+  pointer-events: none;
+  ${({ $fromMe }) => $fromMe && 'align-self: flex-end;'}
 `;
