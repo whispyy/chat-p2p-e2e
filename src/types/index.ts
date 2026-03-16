@@ -31,3 +31,12 @@ export interface ChatServiceEvents {
   onMessage: (message: Message) => void;
   onClose: () => void;
 }
+
+export type CallState = 'idle' | 'outgoing_ringing' | 'incoming_ringing' | 'negotiating' | 'active';
+
+export interface CallSignalMessage {
+  t: 'call-request' | 'call-accept' | 'call-reject' | 'call-offer' | 'call-answer' | 'call-end';
+  callId: string;
+  sdp?: string;
+  reason?: string;
+}

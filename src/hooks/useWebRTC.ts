@@ -24,12 +24,13 @@ export interface WebRTCHandle {
   meshReady: boolean;
   connectedPeers: ReadonlySet<string>;
   contactsVersion: number;
+  meshNodeRef: MeshNode | null;
 }
 
 // Singleton MeshNode shared across the app lifecycle
 let meshNodeSingleton: MeshNode | null = null;
 
-async function getMeshNode(): Promise<MeshNode> {
+export async function getMeshNode(): Promise<MeshNode> {
   if (!meshNodeSingleton) {
     meshNodeSingleton = new MeshNode();
     await meshNodeSingleton.init();
@@ -45,6 +46,7 @@ export function useWebRTC(): WebRTCHandle {
   const [chatService, setChatService] = useState<ChatService | null>(null);
   const [peerId, setPeerId] = useState('');
   const [meshReady, setMeshReady] = useState(false);
+  const [meshNodeState, setMeshNodeState] = useState<MeshNode | null>(null);
   const [connectedPeers, setConnectedPeers] = useState<ReadonlySet<string>>(new Set());
   const [contactsVersion, setContactsVersion] = useState(0);
 
@@ -103,6 +105,7 @@ export function useWebRTC(): WebRTCHandle {
         }
       };
 
+      setMeshNodeState(node);
       setMeshReady(true);
     })();
     return () => { cancelled = true; };
@@ -261,5 +264,6 @@ export function useWebRTC(): WebRTCHandle {
   return {
     state, errorMessage, offerCode, answerCode, peerId, chatService,
     startOffer, submitAnswer, startJoin, submitOffer, reset, reconnect, meshReady, connectedPeers, contactsVersion,
+    meshNodeRef: meshNodeState,
   };
 }

@@ -2,9 +2,10 @@ import { useEffect, useRef } from 'react';
 import styled from 'styled-components';
 import { Message } from '../components/Message';
 import { MessageInput } from '../components/MessageInput';
+import { ActiveCallBar } from '../components/ActiveCallBar';
 import { useChat } from '../hooks/useChat';
 import { ChatService } from '../services/chat.service';
-import type { Message as MessageType, MessagePosition } from '../types';
+import type { CallState, Message as MessageType, MessagePosition } from '../types';
 
 function getPosition(messages: MessageType[], index: number): MessagePosition {
   const cur = messages[index];
@@ -23,9 +24,15 @@ interface ChatScreenProps {
   peerId: string;
   onEnd: () => void;
   isOnline?: boolean;
+  callState?: CallState;
+  callDuration?: number;
+  isMuted?: boolean;
+  onStartCall?: () => void;
+  onHangUp?: () => void;
+  onToggleMute?: () => void;
 }
 
-export function ChatScreen({ chatService, peerId, onEnd, isOnline }: ChatScreenProps) {
+export function ChatScreen({ chatService, peerId, onEnd, isOnline, callState, callDuration, isMuted, onStartCall, onHangUp, onToggleMute }: ChatScreenProps) {
   const { messages, send } = useChat(chatService, onEnd, peerId || undefined);
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -59,9 +66,32 @@ export function ChatScreen({ chatService, peerId, onEnd, isOnline }: ChatScreenP
           </HeaderText>
         </HeaderCenter>
 
-        {/* spacer to balance the close button */}
-        <Spacer />
+        <CallButton
+          onClick={onStartCall}
+          disabled={!isOnline || !onStartCall || (callState !== undefined && callState !== 'idle')}
+          aria-label="Start call"
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M20.01 15.38c-1.23 0-2.42-.2-3.53-.56a.977.977 0 0 0-1.01.24l-1.57 1.97c-2.83-1.35-5.48-3.9-6.89-6.83l1.95-1.66c.27-.28.35-.67.24-1.02-.37-1.11-.56-2.3-.56-3.53 0-.54-.45-.99-.99-.99H4.19C3.65 3 3 3.24 3 3.99 3 13.28 10.73 21 20.01 21c.71 0 .99-.63.99-1.18v-3.45c0-.54-.45-.99-.99-.99z" />
+          </svg>
+        </CallButton>
       </Header>
+
+      {callState === 'active' && onHangUp && onToggleMute && (
+        <ActiveCallBar
+          duration={callDuration ?? 0}
+          isMuted={isMuted ?? false}
+          onToggleMute={onToggleMute}
+          onHangUp={onHangUp}
+        />
+      )}
+
+      {callState === 'outgoing_ringing' && (
+        <RingingBar>
+          Calling...
+          <RingingHangUp onClick={onHangUp}>Cancel</RingingHangUp>
+        </RingingBar>
+      )}
 
       <MessageList>
         {messages.length === 0 ? (
@@ -186,9 +216,45 @@ const StatusDot = styled.div`
   flex-shrink: 0;
 `;
 
-const Spacer = styled.div`
+const CallButton = styled.button`
   width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(0, 0, 0, 0.06);
+  color: #34c759;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   flex-shrink: 0;
+  transition: background 0.15s, opacity 0.15s;
+
+  &:active { background: rgba(0, 0, 0, 0.12); }
+  &:disabled { opacity: 0.3; cursor: default; }
+`;
+
+const RingingBar = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  background: #f0f8ff;
+  border-bottom: 1px solid rgba(79, 142, 247, 0.15);
+  font-size: 14px;
+  font-weight: 500;
+  color: #4f8ef7;
+  flex-shrink: 0;
+`;
+
+const RingingHangUp = styled.button`
+  border: none;
+  background: none;
+  color: #ff3b30;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 4px 8px;
 `;
 
 const MessageList = styled.div`

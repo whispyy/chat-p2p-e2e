@@ -1,10 +1,11 @@
 import type { GossipTransport, MeshMessage } from './gossip-transport';
-import type { Message } from '../../types';
+import type { CallSignalMessage, Message } from '../../types';
 import { MeshGossip } from './mesh-gossip';
 import { MeshReconnector } from './mesh-reconnector';
 import * as MeshIdentity from './mesh-identity';
 import { WebRTCService } from '../webrtc.service';
 import { ChatService } from '../chat.service';
+import { CallService } from '../call.service';
 import { upsertContact, appendMessage } from '../storage.service';
 
 type MeshMessageHandler = (fromPeerId: string, message: MeshMessage) => void;
@@ -12,6 +13,7 @@ type MeshMessageHandler = (fromPeerId: string, message: MeshMessage) => void;
 export class MeshNode implements GossipTransport {
   private connections = new Map<string, WebRTCService>();
   private peerIdByService = new WeakMap<WebRTCService, string>();
+  private callServices = new Map<string, CallService>();
   private messageHandlers: MeshMessageHandler[] = [];
   private gossip: MeshGossip;
   private reconnector: MeshReconnector;
@@ -27,6 +29,14 @@ export class MeshNode implements GossipTransport {
   onIncomingMessage: ((fromPeerId: string, message: Message) => void) | null = null;
   /** Called when a delivery ack is received for a sent message. */
   onDeliveryAck: ((fromPeerId: string, messageId: string) => void) | null = null;
+  /** Called when an incoming call arrives from a peer. */
+  onIncomingCall: ((peerId: string, callId: string) => void) | null = null;
+  /** Called when any call state changes. */
+  onCallStateChange: ((state: string, peerId: string) => void) | null = null;
+  /** Called when the remote audio stream is available. */
+  onCallRemoteStream: ((stream: MediaStream) => void) | null = null;
+  /** Called on call error. */
+  onCallError: ((error: string) => void) | null = null;
 
   constructor() {
     // Gossip and reconnector will be set up in init()
@@ -100,6 +110,14 @@ export class MeshNode implements GossipTransport {
     // Handle delivery acks
     webrtc.onAck = (id: string) => {
       this.onDeliveryAck?.(peerId, id);
+    };
+
+    // Route call signals to the CallService for this peer
+    webrtc.onCallSignal = (msg: CallSignalMessage) => {
+      const cs = this.getOrCreateCallService(peerId);
+      if (cs) {
+        cs.handleCallSignal(msg);
+      }
     };
 
     // Wire close handler (chain with any existing handler, e.g. from ChatService)
@@ -179,9 +197,44 @@ export class MeshNode implements GossipTransport {
     return this.connections.has(peerId);
   }
 
+  // ─── Call management ───────────────────────────────────────────────────
+
+  getOrCreateCallService(peerId: string): CallService | null {
+    const existing = this.callServices.get(peerId);
+    if (existing) return existing;
+
+    const webrtc = this.connections.get(peerId);
+    if (!webrtc) return null;
+
+    const cs = new CallService(webrtc, this.getPeerId(), peerId);
+
+    cs.onStateChange = (state, remotePeerId) => {
+      this.onCallStateChange?.(state, remotePeerId);
+      if (state === 'incoming_ringing') {
+        this.onIncomingCall?.(remotePeerId, cs.getCallId()!);
+      }
+      if (state === 'idle') {
+        this.callServices.delete(peerId);
+      }
+    };
+    cs.onRemoteStream = (stream) => this.onCallRemoteStream?.(stream);
+    cs.onError = (err) => this.onCallError?.(err);
+
+    this.callServices.set(peerId, cs);
+    return cs;
+  }
+
+  getCallService(peerId: string): CallService | null {
+    return this.callServices.get(peerId) ?? null;
+  }
+
   dispose(): void {
     this.gossip.stop();
     this.reconnector.dispose();
+    for (const cs of this.callServices.values()) {
+      cs.dispose();
+    }
+    this.callServices.clear();
     for (const webrtc of this.connections.values()) {
       webrtc.close();
     }
